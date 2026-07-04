@@ -1,17 +1,17 @@
 const express = require('express');
-const cors = require('cors'); // Necessario per far parlare il sito col server
+const cors = require('cors');
 const { Telegraf } = require('telegraf');
 
 const app = express();
-// Recupera il token dalle variabili di Render, non scriverlo qui!
 const bot = new Telegraf(process.env.BOT_TOKEN); 
 
-app.use(cors()); // ABILITA LA COMUNICAZIONE
+app.use(cors());
 app.use(express.json());
 
-// 1. Endpoint per ottenere le domande
+// 1. Endpoint per ottenere 30 domande random
 app.post('/get-questions', async (req, res) => {
-    // Esempio di dati che invierai al sito
+    
+    // Inserisci qui il tuo database completo (le 559 domande)
     const questions = [
     {
         q: "Il diritto commerciale regola:",
@@ -5313,7 +5313,14 @@ app.post('/get-questions', async (req, res) => {
     ],
     "info": "Le operazioni straordinarie di fusione e scissione sono perfettamente compatibili anche con le S.r.l.s. e le S.r.l. a capitale ridotto."
   }
-];
+  ];
+// Logica: Mischia le domande (Shuffle)
+    const shuffled = databaseCompleto.sort(() => 0.5 - Math.random());
+    
+    // Logica: Prendi solo le prime 30
+    const questions = shuffled.slice(0, 30);
+    
+    // Invia al client
     res.json({ questions: questions });
 });
 
@@ -5334,6 +5341,5 @@ app.post('/create-payment', async (req, res) => {
     }
 });
 
-// Usa la porta assegnata da Render o la 3000
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server attivo sulla porta ${PORT}`));

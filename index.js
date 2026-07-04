@@ -1,17 +1,18 @@
 const express = require('express');
+const cors = require('cors'); // Necessario per far parlare il sito col server
 const { Telegraf } = require('telegraf');
-const app = express();
-const bot = new Telegraf('8717271831:AAGY93FbHfi1B8-0MjWt_NAxcPXEq78yumc'); // Inserisci il tuo token qui
 
+const app = express();
+// Recupera il token dalle variabili di Render, non scriverlo qui!
+const bot = new Telegraf(process.env.BOT_TOKEN); 
+
+app.use(cors()); // ABILITA LA COMUNICAZIONE
 app.use(express.json());
 
-// 1. Endpoint per ottenere le domande (protetto!)
+// 1. Endpoint per ottenere le domande
 app.post('/get-questions', async (req, res) => {
-    const { initData } = req.body;
-    
-    // QUI AGGIUNGEREMO LA LOGICA DI VERIFICA (l'hash di Telegram)
-    // Se è valido, restituiamo le domande:
-    res.json({ questions: [
+    // Esempio di dati che invierai al sito
+    const questions = [
     {
         q: "Il diritto commerciale regola:",
         options: [
@@ -5312,23 +5313,27 @@ app.post('/get-questions', async (req, res) => {
     ],
     "info": "Le operazioni straordinarie di fusione e scissione sono perfettamente compatibili anche con le S.r.l.s. e le S.r.l. a capitale ridotto."
   }
-  
-  
-  
-  
-] });
+];
+    res.json({ questions: questions });
 });
 
 // 2. Endpoint per creare il pagamento
 app.post('/create-payment', async (req, res) => {
-    const invoiceLink = await bot.telegram.createInvoiceLink({
-        title: "Accesso Quiz",
-        description: "Sblocca l'esame",
-        payload: "unlock-quiz",
-        currency: "XTR",
-        prices: [{ label: "Accesso", amount: 1 }]
-    });
-    res.json({ url: invoiceLink });
+    try {
+        const invoiceLink = await bot.telegram.createInvoiceLink({
+            title: "Accesso Quiz",
+            description: "Sblocca l'esame",
+            payload: "unlock-quiz",
+            currency: "XTR",
+            prices: [{ label: "Accesso", amount: 1 }]
+        });
+        res.json({ url: invoiceLink });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Errore nel creare il pagamento" });
+    }
 });
 
-app.listen(3000, () => console.log('Server attivo su porta 3000'));
+// Usa la porta assegnata da Render o la 3000
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server attivo sulla porta ${PORT}`));

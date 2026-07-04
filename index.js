@@ -10,14 +10,12 @@ const app = express();
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 // Inizializza Supabase
-// Usa preferibilmente la SERVICE ROLE KEY solo sul backend Render, mai nel frontend.
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 app.use(cors());
 app.use(express.json());
 
 // Verifica che i dati arrivino davvero da Telegram WebApp.
-// Non fidarsi mai di initDataUnsafe o di userId ricevuti dal browser.
 function verifyTelegramInitData(initData) {
     if (!initData) return null;
 
@@ -27,6 +25,14 @@ function verifyTelegramInitData(initData) {
         if (!hash) return null;
 
         params.delete('hash');
+
+        const authDate = Number(params.get('auth_date'));
+        const now = Math.floor(Date.now() / 1000);
+
+        // Link Telegram valido massimo 5 minuti
+        if (!authDate || now - authDate > 300) {
+            return null;
+        }
 
         const dataCheckString = [...params.entries()]
             .sort(([a], [b]) => a.localeCompare(b))
@@ -43,7 +49,6 @@ function verifyTelegramInitData(initData) {
             .update(dataCheckString)
             .digest('hex');
 
-        // Confronto sicuro tra hash
         const calculatedBuffer = Buffer.from(calculatedHash, 'hex');
         const hashBuffer = Buffer.from(hash, 'hex');
 
@@ -76,7 +81,6 @@ async function isUserPaid(telegramId) {
     return !!data;
 }
 
-// Endpoint protetto: invia le domande solo se Telegram initData è valido e l'utente ha pagato.
 app.post('/get-questions', async (req, res) => {
     const { initData } = req.body;
 
@@ -99,7 +103,6 @@ app.post('/get-questions', async (req, res) => {
     }
 });
 
-// Endpoint protetto: controlla lo stato dell'utente solo dopo verifica Telegram initData.
 app.post('/check-status', async (req, res) => {
     const { initData } = req.body;
 
@@ -117,7 +120,6 @@ app.post('/check-status', async (req, res) => {
     }
 });
 
-// Endpoint per il pagamento
 app.post('/create-payment', async (req, res) => {
     try {
         console.log('Creazione link pagamento richiesta...');
@@ -137,7 +139,6 @@ app.post('/create-payment', async (req, res) => {
     }
 });
 
-// LOGICA PAGAMENTO TELEGRAM
 bot.on('pre_checkout_query', async (ctx) => {
     console.log('Ricevuta pre-checkout query');
     await ctx.answerPreCheckoutQuery(true);
@@ -174,7 +175,6 @@ bot.on('successful_payment', async (ctx) => {
     }
 });
 
-// Avvio
 bot.launch()
     .then(() => console.log('Bot avviato correttamente!'))
     .catch((err) => console.error('Errore avvio bot:', err));
@@ -182,6 +182,5 @@ bot.launch()
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server HTTP attivo su porta ${PORT}`));
 
-// Stop pulito del bot
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

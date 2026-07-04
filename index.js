@@ -2,8 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const { Telegraf } = require('telegraf');
 
-// Importiamo il file JSON che hai creato
-const databaseCompleto = require('./data.json');
+// 1. Carichiamo il database (che deve essere un array valido)
+const databaseCompleto = require('./data.json'); 
 
 const app = express();
 const bot = new Telegraf(process.env.BOT_TOKEN); 
@@ -11,23 +11,24 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 app.use(cors());
 app.use(express.json());
 
-// 1. Endpoint per ottenere 30 domande random
-app.post('/get-questions', async (req, res) => {
+// 2. Endpoint: Quando il sito chiama '/get-questions', il server fa il lavoro sporco
+app.post('/get-questions', (req, res) => {
     try {
-        // Mischiamo l'array senza modificare l'originale
+        // Logica di randomizzazione (Shuffle)
         const shuffled = [...databaseCompleto].sort(() => 0.5 - Math.random());
         
-        // Prendiamo solo le prime 30
+        // Logica di limite: prendiamo solo le prime 30 domande
         const questions = shuffled.slice(0, 30);
         
+        // Inviamo solo le 30 domande al sito
         res.json({ questions: questions });
     } catch (err) {
-        console.error("Errore nel caricamento domande:", err);
-        res.status(500).json({ error: "Errore interno al server" });
+        console.error("Errore nel randomizzare:", err);
+        res.status(500).json({ error: "Errore nel server" });
     }
 });
 
-// 2. Endpoint per creare il pagamento
+// Endpoint per il pagamento
 app.post('/create-payment', async (req, res) => {
     try {
         const invoiceLink = await bot.telegram.createInvoiceLink({
@@ -45,4 +46,4 @@ app.post('/create-payment', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server attivo sulla porta ${PORT}`));
+app.listen(PORT, () => console.log(`Server attivo su porta ${PORT}`));

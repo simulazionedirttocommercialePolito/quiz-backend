@@ -4,20 +4,48 @@ const crypto = require('crypto');
 const { Telegraf } = require('telegraf');
 const { createClient } = require('@supabase/supabase-js');
 
-// 1. Configurazione
 const databaseCompleto = require('./data.json');
 const app = express();
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Inizializza Supabase
-// Usa preferibilmente la SERVICE ROLE KEY solo sul backend Render, mai nel frontend.
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 app.use(cors());
 app.use(express.json());
 
-// Verifica che i dati arrivino davvero da Telegram WebApp.
-// Non fidarsi mai di initDataUnsafe o di userId ricevuti dal browser.
+const sessions = new Map();
+
+function createSession(userId, userAgent) {
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = Date.now() + 5 * 60 * 1000;
+
+    sessions.set(token, {
+        userId: userId.toString(),
+        userAgent: userAgent || '',
+        expiresAt
+    });
+
+    return token;
+}
+
+function verifySession(token, userAgent) {
+    if (!token) return null;
+
+    const session = sessions.get(token);
+    if (!session) return null;
+
+    if (Date.now() > session.expiresAt) {
+        sessions.delete(token);
+        return null;
+    }
+
+    if (session.userAgent !== (userAgent || '')) {
+        return null;
+    }
+
+    return session;
+}
+
 function verifyTelegramInitData(initData) {
     if (!initData) return null;
 
@@ -27,6 +55,13 @@ function verifyTelegramInitData(initData) {
         if (!hash) return null;
 
         params.delete('hash');
+
+        const authDate = Number(params.get('auth_date'));
+        const now = Math.floor(Date.now() / 1000);
+
+        if (!authDate || now - authDate > 30) {
+            return null;
+        }
 
         const dataCheckString = [...params.entries()]
             .sort(([a], [b]) => a.localeCompare(b))
@@ -43,7 +78,6 @@ function verifyTelegramInitData(initData) {
             .update(dataCheckString)
             .digest('hex');
 
-        // Confronto sicuro tra hash
         const calculatedBuffer = Buffer.from(calculatedHash, 'hex');
         const hashBuffer = Buffer.from(hash, 'hex');
 
@@ -76,17 +110,50 @@ async function isUserPaid(telegramId) {
     return !!data;
 }
 
-// Endpoint protetto: invia le domande solo se Telegram initData è valido e l'utente ha pagato.
-app.post('/get-questions', async (req, res) => {
+app.post('/check-status', async (req, res) => {
     const { initData } = req.body;
+    const userAgent = req.headers['user-agent'];
 
     const user = verifyTelegramInitData(initData);
     if (!user) {
-        return res.status(403).json({ error: 'Accesso non autorizzato. Apri il quiz da Telegram.' });
+        return res.status(403).json({
+            status: 'free',
+            error: 'Accesso non autorizzato'
+        });
     }
 
     try {
         const paid = await isUserPaid(user.id);
+
+        if (!paid) {
+            return res.json({ status: 'free' });
+        }
+
+        const sessionToken = createSession(user.id, userAgent);
+
+        return res.json({
+            status: 'paid',
+            sessionToken
+        });
+    } catch (err) {
+        console.error('Errore database check-status:', err);
+        return res.json({ status: 'free' });
+    }
+});
+
+app.post('/get-questions', async (req, res) => {
+    const { sessionToken } = req.body;
+    const userAgent = req.headers['user-agent'];
+
+    const session = verifySession(sessionToken, userAgent);
+    if (!session) {
+        return res.status(403).json({
+            error: 'Sessione scaduta o non valida. Riapri il quiz da Telegram.'
+        });
+    }
+
+    try {
+        const paid = await isUserPaid(session.userId);
 
         if (!paid) {
             return res.status(403).json({ error: 'Pagamento richiesto' });
@@ -99,25 +166,6 @@ app.post('/get-questions', async (req, res) => {
     }
 });
 
-// Endpoint protetto: controlla lo stato dell'utente solo dopo verifica Telegram initData.
-app.post('/check-status', async (req, res) => {
-    const { initData } = req.body;
-
-    const user = verifyTelegramInitData(initData);
-    if (!user) {
-        return res.status(403).json({ status: 'free', error: 'Accesso non autorizzato' });
-    }
-
-    try {
-        const paid = await isUserPaid(user.id);
-        return res.json({ status: paid ? 'paid' : 'free' });
-    } catch (err) {
-        console.error('Errore database check-status:', err);
-        return res.json({ status: 'free' });
-    }
-});
-
-// Endpoint per il pagamento
 app.post('/create-payment', async (req, res) => {
     try {
         console.log('Creazione link pagamento richiesta...');
@@ -137,7 +185,6 @@ app.post('/create-payment', async (req, res) => {
     }
 });
 
-// LOGICA PAGAMENTO TELEGRAM
 bot.on('pre_checkout_query', async (ctx) => {
     console.log('Ricevuta pre-checkout query');
     await ctx.answerPreCheckoutQuery(true);
@@ -157,11 +204,13 @@ bot.on('successful_payment', async (ctx) => {
 
     if (error) {
         console.error('ERRORE CRITICO SUPABASE:', error);
+
         try {
             await ctx.reply("Errore interno nel confermare il pagamento. Contatta l'assistenza.");
         } catch (replyError) {
             console.error('Impossibile inviare messaggio errore su Telegram:', replyError);
         }
+
         return;
     }
 
@@ -174,7 +223,6 @@ bot.on('successful_payment', async (ctx) => {
     }
 });
 
-// Avvio
 bot.launch()
     .then(() => console.log('Bot avviato correttamente!'))
     .catch((err) => console.error('Errore avvio bot:', err));
@@ -182,6 +230,5 @@ bot.launch()
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server HTTP attivo su porta ${PORT}`));
 
-// Stop pulito del bot
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

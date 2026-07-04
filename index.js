@@ -4,18 +4,26 @@ const crypto = require('crypto');
 const { Telegraf } = require('telegraf');
 const { createClient } = require('@supabase/supabase-js');
 
-// 1. Configurazione
 const databaseCompleto = require('./data.json');
 const app = express();
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Inizializza Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 app.use(cors());
 app.use(express.json());
 
-// Verifica che i dati arrivino davvero da Telegram WebApp.
+const usedLinks = new Map();
+
+function cleanUsedLinks() {
+    const now = Date.now();
+    for (const [key, expiresAt] of usedLinks.entries()) {
+        if (now > expiresAt) {
+            usedLinks.delete(key);
+        }
+    }
+}
+
 function verifyTelegramInitData(initData) {
     if (!initData) return null;
 
@@ -29,7 +37,6 @@ function verifyTelegramInitData(initData) {
         const authDate = Number(params.get('auth_date'));
         const now = Math.floor(Date.now() / 1000);
 
-        // Link Telegram valido massimo 5 minuti
         if (!authDate || now - authDate > 300) {
             return null;
         }
@@ -58,7 +65,10 @@ function verifyTelegramInitData(initData) {
         const userParam = params.get('user');
         if (!userParam) return null;
 
-        return JSON.parse(userParam);
+        return {
+            user: JSON.parse(userParam),
+            hash
+        };
     } catch (error) {
         console.error('Errore verifica initData Telegram:', error);
         return null;
@@ -82,11 +92,19 @@ async function isUserPaid(telegramId) {
 }
 
 app.post('/get-questions', async (req, res) => {
+    cleanUsedLinks();
+
     const { initData } = req.body;
 
-    const user = verifyTelegramInitData(initData);
-    if (!user) {
+    const verified = verifyTelegramInitData(initData);
+    if (!verified) {
         return res.status(403).json({ error: 'Accesso non autorizzato. Apri il quiz da Telegram.' });
+    }
+
+    const { user, hash } = verified;
+
+    if (usedLinks.has(hash)) {
+        return res.status(403).json({ error: 'Link già usato. Riapri il quiz da Telegram.' });
     }
 
     try {
@@ -95,6 +113,8 @@ app.post('/get-questions', async (req, res) => {
         if (!paid) {
             return res.status(403).json({ error: 'Pagamento richiesto' });
         }
+
+        usedLinks.set(hash, Date.now() + 5 * 60 * 1000);
 
         return res.json({ questions: databaseCompleto });
     } catch (err) {
@@ -106,13 +126,13 @@ app.post('/get-questions', async (req, res) => {
 app.post('/check-status', async (req, res) => {
     const { initData } = req.body;
 
-    const user = verifyTelegramInitData(initData);
-    if (!user) {
+    const verified = verifyTelegramInitData(initData);
+    if (!verified) {
         return res.status(403).json({ status: 'free', error: 'Accesso non autorizzato' });
     }
 
     try {
-        const paid = await isUserPaid(user.id);
+        const paid = await isUserPaid(verified.user.id);
         return res.json({ status: paid ? 'paid' : 'free' });
     } catch (err) {
         console.error('Errore database check-status:', err);

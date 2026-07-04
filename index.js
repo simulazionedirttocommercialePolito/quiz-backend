@@ -15,20 +15,19 @@ app.use(express.json());
 
 const sessions = new Map();
 
-function createSession(userId, userAgent) {
+function createSession(userId) {
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = Date.now() + 5 * 60 * 1000;
 
     sessions.set(token, {
         userId: userId.toString(),
-        userAgent: userAgent || '',
         expiresAt
     });
 
     return token;
 }
 
-function verifySession(token, userAgent) {
+function verifySession(token) {
     if (!token) return null;
 
     const session = sessions.get(token);
@@ -36,10 +35,6 @@ function verifySession(token, userAgent) {
 
     if (Date.now() > session.expiresAt) {
         sessions.delete(token);
-        return null;
-    }
-
-    if (session.userAgent !== (userAgent || '')) {
         return null;
     }
 
@@ -112,7 +107,6 @@ async function isUserPaid(telegramId) {
 
 app.post('/check-status', async (req, res) => {
     const { initData } = req.body;
-    const userAgent = req.headers['user-agent'];
 
     const user = verifyTelegramInitData(initData);
     if (!user) {
@@ -129,7 +123,7 @@ app.post('/check-status', async (req, res) => {
             return res.json({ status: 'free' });
         }
 
-        const sessionToken = createSession(user.id, userAgent);
+        const sessionToken = createSession(user.id);
 
         return res.json({
             status: 'paid',
@@ -143,9 +137,8 @@ app.post('/check-status', async (req, res) => {
 
 app.post('/get-questions', async (req, res) => {
     const { sessionToken } = req.body;
-    const userAgent = req.headers['user-agent'];
 
-    const session = verifySession(sessionToken, userAgent);
+    const session = verifySession(sessionToken);
     if (!session) {
         return res.status(403).json({
             error: 'Sessione scaduta o non valida. Riapri il quiz da Telegram.'

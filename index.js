@@ -149,7 +149,7 @@ app.post('/create-payment', async (req, res) => {
             description: "Sblocca l'esame",
             payload: 'unlock-quiz',
             currency: 'XTR',
-            prices: [{ label: 'Accesso', amount: 1 }]
+            prices: [{ label: 'Accesso', amount: 150 }]
         });
 
         return res.json({ url: invoiceLink });

@@ -5,11 +5,11 @@
   "scripts": {
     "start": "node index.js"
   },
-  "dependencies": {
+   "dependencies": {
     "express": "^4.21.0",
     "cors": "^2.8.5",
     "telegraf": "^4.16.3",
-    "@supabase/supabase-js": "^2.44.0"
+    "@supabase/supabase-js": "2.44.0"
   },
   "engines": {
     "node": "20.x"

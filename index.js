@@ -7,6 +7,7 @@ const { createClient } = require('@supabase/supabase-js');
 const databaseCompleto = require('./data.json'); 
 const app = express();
 const bot = new Telegraf(process.env.BOT_TOKEN); 
+
 // Inizializza Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
@@ -34,6 +35,11 @@ app.post('/check-status', async (req, res) => {
             .eq('is_paid', true)
             .single();
         
+        // Se c'è un errore che non sia "non trovato", loggalo
+        if (error && error.code !== 'PGRST116') {
+             console.error("Errore Supabase in check-status:", error);
+        }
+        
         res.json({ status: data ? 'paid' : 'free' });
     } catch (err) {
         console.error("Errore database check-status:", err);
@@ -44,6 +50,7 @@ app.post('/check-status', async (req, res) => {
 // Endpoint per il pagamento
 app.post('/create-payment', async (req, res) => {
     try {
+        console.log("Creazione link pagamento richiesta...");
         const invoiceLink = await bot.telegram.createInvoiceLink({
             title: "Accesso Quiz",
             description: "Sblocca l'esame",
@@ -53,20 +60,23 @@ app.post('/create-payment', async (req, res) => {
         });
         res.json({ url: invoiceLink });
     } catch (err) {
-        console.error("Errore creazione pagamento:", err);
+        console.error("ERRORE CREATE PAYMENT:", err);
         res.status(500).json({ error: "Errore nel creare il pagamento" });
     }
 });
 
 // LOGICA PAGAMENTO TELEGRAM
-bot.on('pre_checkout_query', (ctx) => ctx.answerPreCheckoutQuery(true));
+bot.on('pre_checkout_query', (ctx) => {
+    console.log("Ricevuta pre-checkout query");
+    ctx.answerPreCheckoutQuery(true);
+});
 
 bot.on('successful_payment', async (ctx) => {
+    console.log("RICEVUTO EVENTO SUCCESSFUL_PAYMENT!");
     const userId = ctx.from.id.toString();
     
-    // CORREZIONE FONDAMENTALE: Aggiunto { onConflict: 'telegram_id' }
-    // Questo dice a Supabase: "Se esiste già un telegram_id uguale, aggiorna, non creare doppioni"
-    const { error } = await supabase
+    // Tentativo di salvataggio
+    const { data, error } = await supabase
         .from('utenti_paganti')
         .upsert({ 
             telegram_id: userId, 
@@ -75,17 +85,19 @@ bot.on('successful_payment', async (ctx) => {
         }, { onConflict: 'telegram_id' });
         
     if (error) {
-        console.error("Errore salvataggio DB:", error);
+        console.error("ERRORE CRITICO SUPABASE:", error);
+        ctx.reply("Errore interno nel confermare il pagamento. Contatta l'assistenza.");
     } else {
+        console.log("Pagamento salvato con successo per:", userId);
         try {
             await ctx.reply("Pagamento confermato! Ora hai accesso completo al quiz.");
         } catch (e) {
-            console.error("Impossibile inviare messaggio di conferma:", e);
+            console.error("Impossibile inviare messaggio di conferma su Telegram:", e);
         }
     }
 });
 
-// Avvia il bot e il server
-bot.launch();
+// Avvio
+bot.launch().then(() => console.log("Bot avviato correttamente!"));
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server attivo su porta ${PORT}`));
+app.listen(PORT, () => console.log(`Server HTTP attivo su porta ${PORT}`));

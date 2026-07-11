@@ -6979,11 +6979,11 @@
         "options": [
             {
                 "text": "L'assemblea ordinaria",
-                "correct": true
+                "correct": false
             },
             {
                 "text": "L'assemblea straordinaria",
-                "correct": false
+                "correct": true
             },
             {
                 "text": "Gli amministratori",
